@@ -1,6 +1,7 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
+import plotly.graph_objects as go
 
 st.set_page_config(page_title="Portfolio Tracker", layout="wide")
 st.title("Portfolio Tracker")
@@ -107,3 +108,126 @@ else:
         use_container_width=True,
         hide_index=True,
     )
+
+    # --- What If: Scenario & Stress Testing ---
+    st.divider()
+    st.header("What If — Scenario Testing")
+
+    scenario_tab, stress_tab = st.tabs(["Custom Scenario", "Stress Tests"])
+
+    with scenario_tab:
+        st.subheader("Uniform Market Move")
+        pct_change = st.slider(
+            "Simulate a market-wide move (%)",
+            min_value=-50, max_value=50, value=0, step=1,
+            format="%d%%",
+        )
+
+        st.subheader("Per-Ticker Overrides")
+        st.caption("Set a custom % change for individual tickers (overrides the uniform move).")
+        ticker_overrides = {}
+        override_cols = st.columns(min(len(tickers), 4))
+        for i, t in enumerate(tickers):
+            with override_cols[i % len(override_cols)]:
+                val = st.number_input(
+                    f"{t} (%)", min_value=-100.0, max_value=200.0,
+                    value=float(pct_change), step=1.0, key=f"override_{t}",
+                )
+                ticker_overrides[t] = val
+
+        # Calculate scenario
+        scenario_rows = []
+        for h in st.session_state.holdings:
+            price = price_data.get(h["ticker"])
+            if price is None:
+                continue
+            move = ticker_overrides.get(h["ticker"], pct_change)
+            new_price = price * (1 + move / 100)
+            current_val = price * h["shares"]
+            new_val = new_price * h["shares"]
+            scenario_rows.append({
+                "Ticker": h["ticker"],
+                "Current Price": price,
+                "Scenario Price": new_price,
+                "Current Value": current_val,
+                "Scenario Value": new_val,
+                "Change ($)": new_val - current_val,
+            })
+
+        scenario_df = pd.DataFrame(scenario_rows)
+        if not scenario_df.empty:
+            new_total = scenario_df["Scenario Value"].sum()
+            change_total = scenario_df["Change ($)"].sum()
+            change_pct = (change_total / total_value * 100) if total_value > 0 else 0
+
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Current Value", f"${total_value:,.2f}")
+            c2.metric("Scenario Value", f"${new_total:,.2f}")
+            c3.metric("Impact", f"${change_total:+,.2f}", f"{change_pct:+.2f}%")
+
+            st.dataframe(
+                scenario_df.style.format({
+                    "Current Price": "${:.2f}",
+                    "Scenario Price": "${:.2f}",
+                    "Current Value": "${:,.2f}",
+                    "Scenario Value": "${:,.2f}",
+                    "Change ($)": "${:+,.2f}",
+                }),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+    with stress_tab:
+        st.subheader("Historical Stress Scenarios")
+        st.caption("See how your portfolio would react under historical market crashes.")
+
+        scenarios = {
+            "2008 Financial Crisis": -38.5,
+            "COVID Crash (Mar 2020)": -33.9,
+            "Dot-com Bust (2000-02)": -49.1,
+            "Black Monday (1987)": -22.6,
+            "2022 Bear Market": -19.4,
+            "Mild Correction (-10%)": -10.0,
+        }
+
+        stress_results = []
+        for name, drop in scenarios.items():
+            scenario_val = total_value * (1 + drop / 100)
+            stress_results.append({
+                "Scenario": name,
+                "Market Drop": f"{drop:+.1f}%",
+                "Portfolio Value": scenario_val,
+                "Loss ($)": scenario_val - total_value,
+            })
+
+        stress_df = pd.DataFrame(stress_results)
+
+        # Bar chart
+        fig = go.Figure()
+        fig.add_trace(go.Bar(
+            x=stress_df["Scenario"],
+            y=stress_df["Portfolio Value"],
+            marker_color=["#ef4444"] * len(stress_df),
+            text=[f"${v:,.0f}" for v in stress_df["Portfolio Value"]],
+            textposition="outside",
+        ))
+        fig.add_hline(
+            y=total_value, line_dash="dash", line_color="#22c55e",
+            annotation_text=f"Current: ${total_value:,.0f}",
+        )
+        fig.update_layout(
+            yaxis_title="Portfolio Value ($)",
+            xaxis_title="",
+            height=400,
+            margin=dict(t=30),
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.dataframe(
+            stress_df.style.format({
+                "Portfolio Value": "${:,.2f}",
+                "Loss ($)": "${:+,.2f}",
+            }),
+            use_container_width=True,
+            hide_index=True,
+        )
