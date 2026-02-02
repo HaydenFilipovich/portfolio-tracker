@@ -49,3 +49,6 @@ Visualizations include:
 ```bash
 pip install -r requirements.txt
 streamlit run app.py
+
+Then open the app in your browser at:
+http://localhost:8501
