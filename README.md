@@ -39,6 +39,7 @@ Visualizations include:
 
 ## Tech Stack
 - Python
+- DRIVER Plug-in (from MGMT69000 class)
 - Streamlit
 - Pandas
 - Plotly
