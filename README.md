@@ -127,7 +127,7 @@ pip install -r requirements.txt
 
 # Optional: enable AI Risk Brief
 pip install anthropic
-export ANTHROPIC_API_KEY="sk-ant-..."
+# Set your ANTHROPIC_API_KEY as an environment variable (see provider docs)
 
 streamlit run app.py
 ```
