@@ -195,13 +195,9 @@ Ollama (local LLM, main branch)
 OpenAI API (optional, openai branch)
 
 Running the App Locally
-
 Install dependencies:
-
 pip install -r requirements.txt
-
 Run the app:
-
 streamlit run app.py
 For main branch (Ollama)
 ollama serve
