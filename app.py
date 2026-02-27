@@ -13,6 +13,7 @@ from data import (
     get_current_price, download_prices, peak_to_trough,
     STRESS_SCENARIOS, TRADING_DAYS, LOOKBACK_MAP,
 )
+from risk import compute_performance, compute_var, compute_var_correlation, compute_monte_carlo
 
 st.set_page_config(page_title="Portfolio Tracker", layout="wide")
 
@@ -455,6 +456,23 @@ else:
 
             port_returns = daily_returns.dot(w)
 
+            # Compute default risk metrics (used by AI chatbot later)
+            perf_default = compute_performance(port_returns)
+            mean_daily = perf_default["mean_daily"]
+            std_daily = perf_default["std_daily"]
+
+            var_default = compute_var(port_returns, total_value, 95.0, mean_daily, std_daily)
+            var_corr_default = compute_var_correlation(daily_returns, w, total_value, 95.0, mean_daily)
+            mc_default = compute_monte_carlo(total_value, mean_daily, std_daily, 5000, 21)
+
+            # Store for chatbot access
+            st.session_state["risk_metrics"] = {
+                **perf_default,
+                **var_default,
+                **var_corr_default,
+                **mc_default,
+            }
+
             perf_tab2, var_tab, mc_tab = st.tabs(
                 ["Performance", "VaR / CVaR", "Monte Carlo"]
             )
@@ -473,39 +491,15 @@ else:
                     )
                     / 100
                 )
-                rf_daily = (1 + rf_annual) ** (1 / TRADING_DAYS) - 1
 
-                mean_daily = port_returns.mean()
-                std_daily = port_returns.std()
-                ann_return = (1 + mean_daily) ** TRADING_DAYS - 1
-                ann_vol = std_daily * np.sqrt(TRADING_DAYS)
-
-                sharpe = (
-                    (ann_return - rf_annual) / ann_vol if ann_vol > 0 else 0.0
-                )
-
-                downside = port_returns[port_returns < rf_daily]
-                downside_std = (
-                    downside.std() if len(downside) > 1 else std_daily
-                )
-                sortino = (
-                    (ann_return - rf_annual)
-                    / (downside_std * np.sqrt(TRADING_DAYS))
-                    if downside_std > 0
-                    else 0.0
-                )
-
-                cum_returns = (1 + port_returns).cumprod()
-                running_max = cum_returns.cummax()
-                drawdown_series = (cum_returns - running_max) / running_max
-                max_dd = float(drawdown_series.min())
+                perf = compute_performance(port_returns, rf_annual)
 
                 m1, m2, m3, m4, m5 = st.columns(5)
-                m1.metric("Ann. Return", f"{ann_return:+.2%}")
-                m2.metric("Ann. Volatility", f"{ann_vol:.2%}")
-                m3.metric("Sharpe Ratio", f"{sharpe:.2f}")
-                m4.metric("Sortino Ratio", f"{sortino:.2f}")
-                m5.metric("Max Drawdown", f"{max_dd:.2%}")
+                m1.metric("Ann. Return", f"{perf['ann_return']:+.2%}")
+                m2.metric("Ann. Volatility", f"{perf['ann_vol']:.2%}")
+                m3.metric("Sharpe Ratio", f"{perf['sharpe']:.2f}")
+                m4.metric("Sortino Ratio", f"{perf['sortino']:.2f}")
+                m5.metric("Max Drawdown", f"{perf['max_dd']:.2%}")
 
                 st.divider()
 
@@ -514,8 +508,8 @@ else:
                 cum_fig = go.Figure()
                 cum_fig.add_trace(
                     go.Scatter(
-                        x=cum_returns.index,
-                        y=(cum_returns - 1) * 100,
+                        x=perf["cum_returns"].index,
+                        y=(perf["cum_returns"] - 1) * 100,
                         mode="lines",
                         name="Portfolio",
                         line=dict(color="#3b82f6", width=2),
@@ -533,8 +527,8 @@ else:
                 dd_fig = go.Figure()
                 dd_fig.add_trace(
                     go.Scatter(
-                        x=drawdown_series.index,
-                        y=drawdown_series * 100,
+                        x=perf["drawdown_series"].index,
+                        y=perf["drawdown_series"] * 100,
                         mode="lines",
                         fill="tozeroy",
                         name="Drawdown",
@@ -585,41 +579,21 @@ else:
                     format_func=lambda x: f"{x:.0f}%",
                     key="var_confidence",
                 )
-                alpha = 1 - confidence / 100
 
-                # --- Historical VaR / CVaR ---
-                hist_q = float(port_returns.quantile(alpha))
-                var_hist_pct = -hist_q
-                cvar_hist_pct = -float(
-                    port_returns[port_returns <= hist_q].mean()
-                )
-                var_hist_dollar = var_hist_pct * total_value
-                cvar_hist_dollar = cvar_hist_pct * total_value
-
-                # --- Parametric VaR / CVaR (normal assumption) ---
-                Z_SCORES = {90.0: 1.2816, 95.0: 1.6449, 99.0: 2.3263}
-                PHI_AT_Z = {90.0: 0.17550, 95.0: 0.10314, 99.0: 0.02665}
-                z = Z_SCORES[confidence]
-
-                var_param_pct = z * std_daily - mean_daily
-                cvar_param_pct = (
-                    std_daily * PHI_AT_Z[confidence] / alpha - mean_daily
-                )
-                var_param_dollar = var_param_pct * total_value
-                cvar_param_dollar = cvar_param_pct * total_value
+                var_result = compute_var(port_returns, total_value, confidence, mean_daily, std_daily)
 
                 st.markdown("#### Historical")
                 hc1, hc2 = st.columns(2)
                 hc1.metric(
                     f"VaR ({confidence:.0f}%)",
-                    f"${var_hist_dollar:,.0f}",
-                    f"{var_hist_pct:.2%} of portfolio",
+                    f"${var_result['var_hist_dollar']:,.0f}",
+                    f"{var_result['var_hist_pct']:.2%} of portfolio",
                     delta_color="inverse",
                 )
                 hc2.metric(
                     f"CVaR ({confidence:.0f}%)",
-                    f"${cvar_hist_dollar:,.0f}",
-                    f"{cvar_hist_pct:.2%} of portfolio",
+                    f"${var_result['cvar_hist_dollar']:,.0f}",
+                    f"{var_result['cvar_hist_pct']:.2%} of portfolio",
                     delta_color="inverse",
                 )
 
@@ -627,14 +601,30 @@ else:
                 pc1, pc2 = st.columns(2)
                 pc1.metric(
                     f"VaR ({confidence:.0f}%)",
-                    f"${var_param_dollar:,.0f}",
-                    f"{var_param_pct:.2%} of portfolio",
+                    f"${var_result['var_param_dollar']:,.0f}",
+                    f"{var_result['var_param_pct']:.2%} of portfolio",
                     delta_color="inverse",
                 )
                 pc2.metric(
                     f"CVaR ({confidence:.0f}%)",
-                    f"${cvar_param_dollar:,.0f}",
-                    f"{cvar_param_pct:.2%} of portfolio",
+                    f"${var_result['cvar_param_dollar']:,.0f}",
+                    f"{var_result['cvar_param_pct']:.2%} of portfolio",
+                    delta_color="inverse",
+                )
+
+                # Correlation-aware VaR
+                var_corr = compute_var_correlation(daily_returns, w, total_value, confidence, mean_daily)
+
+                st.markdown("#### Correlation-Aware (Variance-Covariance)")
+                st.caption(
+                    "Uses the full variance-covariance matrix to account for "
+                    "diversification benefits between assets."
+                )
+                cc1, _ = st.columns(2)
+                cc1.metric(
+                    f"VaR ({confidence:.0f}%)",
+                    f"${var_corr['var_corr_dollar']:,.0f}",
+                    f"{var_corr['var_corr_pct']:.2%} of portfolio",
                     delta_color="inverse",
                 )
 
@@ -651,16 +641,16 @@ else:
                     )
                 )
                 var_fig.add_vline(
-                    x=-var_hist_pct * 100,
+                    x=-var_result["var_hist_pct"] * 100,
                     line_dash="solid",
                     line_color="#ef4444",
-                    annotation_text=f"Hist VaR: {-var_hist_pct * 100:.2f}%",
+                    annotation_text=f"Hist VaR: {-var_result['var_hist_pct'] * 100:.2f}%",
                 )
                 var_fig.add_vline(
-                    x=-cvar_hist_pct * 100,
+                    x=-var_result["cvar_hist_pct"] * 100,
                     line_dash="dash",
                     line_color="#dc2626",
-                    annotation_text=f"Hist CVaR: {-cvar_hist_pct * 100:.2f}%",
+                    annotation_text=f"Hist CVaR: {-var_result['cvar_hist_pct'] * 100:.2f}%",
                 )
                 var_fig.update_layout(
                     xaxis_title="Daily Return (%)",
@@ -702,33 +692,20 @@ else:
                         key="mc_horizon",
                     )
 
-                rng = np.random.default_rng(42)
-                mu = mean_daily
-                sigma = std_daily
-
-                rand = rng.standard_normal((n_sims, horizon))
-                log_rets = (mu - 0.5 * sigma**2) + sigma * rand
-                cum_log = np.cumsum(log_rets, axis=1)
-                paths = total_value * np.exp(cum_log)
-
-                terminal = paths[:, -1]
-                mc_mean = float(np.mean(terminal))
-                mc_median = float(np.median(terminal))
-                mc_5 = float(np.percentile(terminal, 5))
-                mc_95 = float(np.percentile(terminal, 95))
+                mc = compute_monte_carlo(total_value, mean_daily, std_daily, n_sims, horizon)
 
                 s1, s2, s3, s4 = st.columns(4)
-                s1.metric("Mean", f"${mc_mean:,.0f}")
-                s2.metric("Median", f"${mc_median:,.0f}")
-                s3.metric("5th Percentile", f"${mc_5:,.0f}")
-                s4.metric("95th Percentile", f"${mc_95:,.0f}")
+                s1.metric("Mean", f"${mc['mc_mean']:,.0f}")
+                s2.metric("Median", f"${mc['mc_median']:,.0f}")
+                s3.metric("5th Percentile", f"${mc['mc_5']:,.0f}")
+                s4.metric("95th Percentile", f"${mc['mc_95']:,.0f}")
 
                 # Terminal value histogram
                 st.subheader("Terminal Value Distribution")
                 mc_hist = go.Figure()
                 mc_hist.add_trace(
                     go.Histogram(
-                        x=terminal,
+                        x=mc["terminal"],
                         nbinsx=80,
                         marker_color="#8b5cf6",
                         opacity=0.7,
@@ -741,16 +718,16 @@ else:
                     annotation_text=f"Current: ${total_value:,.0f}",
                 )
                 mc_hist.add_vline(
-                    x=mc_5,
+                    x=mc["mc_5"],
                     line_dash="dash",
                     line_color="#ef4444",
-                    annotation_text=f"5th: ${mc_5:,.0f}",
+                    annotation_text=f"5th: ${mc['mc_5']:,.0f}",
                 )
                 mc_hist.add_vline(
-                    x=mc_95,
+                    x=mc["mc_95"],
                     line_dash="dash",
                     line_color="#3b82f6",
-                    annotation_text=f"95th: ${mc_95:,.0f}",
+                    annotation_text=f"95th: ${mc['mc_95']:,.0f}",
                 )
                 mc_hist.update_layout(
                     xaxis_title="Portfolio Value ($)",
@@ -764,7 +741,7 @@ else:
                 st.subheader("Simulation Paths (Percentile Bands)")
                 pctl_levels = [5, 25, 50, 75, 95]
                 days_ax = np.arange(1, horizon + 1)
-                pctl_vals = np.percentile(paths, pctl_levels, axis=0)
+                pctl_vals = np.percentile(mc["paths"], pctl_levels, axis=0)
 
                 fan = go.Figure()
                 # 5th–95th band
