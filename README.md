@@ -1,6 +1,8 @@
-# Portfolio Tracker with AI-Integrated Risk & Stress Testing
+# Portfolio Tracker with AI-Integrated Risk & Stress Testing (Local LLM Version)
 
 This project is a Streamlit-based portfolio tracker that allows users to track equity holdings in real time, evaluate portfolio risk using advanced quantitative methods, and generate AI-powered risk analysis grounded in live computed metrics.
+
+This branch (`main`) uses **Ollama with a locally hosted LLM (`llama3.2`)**, enabling fully offline, cost-free AI integration.
 
 ---
 
@@ -63,23 +65,11 @@ Per-ticker breakdown available in expandable panels.
 - Sortino ratio
 - Maximum drawdown
 
----
-
-### Charts
-
-- Cumulative returns
-- Drawdown curve
-- Daily returns distribution
-
----
-
 ### VaR / CVaR
 
 - Historical VaR & CVaR
 - Parametric (normal) VaR & CVaR at 90/95/99% confidence
 - Correlation-aware parametric VaR using the full variance-covariance matrix
-
----
 
 ### Monte Carlo Simulation
 
@@ -90,11 +80,16 @@ Per-ticker breakdown available in expandable panels.
 
 ---
 
-## AI Portfolio Assistant
+## AI Portfolio Assistant (Local LLM)
 
-The AI assistant generates a structured portfolio risk brief using live computed metrics (not static summaries).
+This branch uses:
 
-The model is given direct access to:
+- **Ollama**
+- **Model: `llama3.2`**
+
+The assistant generates structured risk briefs using live computed metrics injected directly into the prompt.
+
+The model is given access to:
 
 - Portfolio holdings
 - Performance metrics
@@ -102,71 +97,27 @@ The model is given direct access to:
 - Monte Carlo distribution outcomes
 - Stress test results
 
-The AI explains:
+Responses are deterministic and structured into:
 
-- Concentration risk
-- Volatility exposure
-- Tail risk
-- Diversification impact
-- Scenario sensitivity
+1. Portfolio Overview
+2. Key Risk Findings
+3. Recommendations
 
-Responses are deterministic (temperature = 0) and constrained to structured output.
-
----
-
-## AI Risk Brief — Exact Prompts
-
-The prompts are defined in `chat.py` and injected with live computed metrics before each call.
-
-### System Prompt
-
-You are a portfolio risk analyst. Given portfolio data and computed risk metrics, produce a concise risk brief.
-
-Structure your response in exactly three sections:
-
-**Portfolio Overview**  
-2–3 sentences summarizing portfolio composition, total value, and risk posture.
-
-**Key Risk Findings**  
-3–5 bullet points citing specific numbers from the data. Cover concentration risk, volatility, drawdown exposure, and tail risk (VaR/CVaR). Compare Sharpe and Sortino ratios to characterize the return/risk profile.
-
-**Recommendations**  
-2–4 bullet points with specific, actionable suggestions. Reference the data to justify each recommendation.
-
-**Rules:**
-
-- Cite exact numbers from provided data.
-- Keep total response under 300 words.
-- Do not use hedging language.
-- Do not add disclaimers.
-
----
-
-## Branch Structure
-
-| Branch   | AI Backend          | Model      |
-|----------|--------------------|------------|
-| `main`   | Ollama (local LLM) | `llama3.2` |
-| `openai` | OpenAI API         | `gpt-4o`   |
-
-The `main` branch provides a fully local AI deployment.  
-The `openai` branch demonstrates API-based LLM integration.
+No API key required.
 
 ---
 
 ## Architecture
-
-The application is modularized into focused components:
 
 | File      | Purpose |
 |-----------|----------|
 | `app.py`  | Streamlit UI and orchestration |
 | `db.py`   | SQLite persistence layer |
 | `data.py` | Market data ingestion (yfinance) |
-| `risk.py` | Pure risk computations (VaR, Monte Carlo, etc.) |
-| `chat.py` | AI prompt construction and metric injection |
+| `risk.py` | Quantitative risk engine |
+| `chat.py` | Prompt construction and metric injection |
 
-The original monolithic design was refactored into modular components to improve clarity, extensibility, and separation of concerns.
+The original monolithic design was refactored into modular components to improve clarity and separation of concerns.
 
 ---
 
@@ -177,33 +128,27 @@ The original monolithic design was refactored into modular components to improve
 - Pandas / NumPy
 - Plotly
 - Yahoo Finance (yfinance)
-- SQLite (persistence)
-- Ollama (local LLM, main branch)
-- OpenAI API (optional, openai branch)
+- SQLite
+- Ollama (local LLM)
 
 ---
 
 ## Running the App Locally
 
-### Install dependencies:
+Install dependencies:
 
 ```bash
 pip install -r requirements.txt
-Run the app:
-streamlit run app.py
-For main branch (Ollama)
+
+Start Ollama:
+
 ollama serve
 ollama pull llama3.2
-For openai branch
 
-Create a .env file:
-
-OPENAI_API_KEY=your-key-here
-
-Then run:
+Run the app:
 
 streamlit run app.py
 
-Open in your browser at:
+Open in browser:
 
 http://localhost:8501
