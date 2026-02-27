@@ -14,6 +14,8 @@ from data import (
     STRESS_SCENARIOS, TRADING_DAYS, LOOKBACK_MAP,
 )
 from risk import compute_performance, compute_var, compute_var_correlation, compute_monte_carlo
+from chat import build_system_prompt
+from openai import OpenAI
 
 st.set_page_config(page_title="Portfolio Tracker", layout="wide")
 
@@ -789,4 +791,52 @@ else:
                     margin=dict(t=30),
                 )
                 st.plotly_chart(fan, use_container_width=True)
+
+    # ------------------------------------------------------------------
+    # AI Chatbot (Ollama)
+    # ------------------------------------------------------------------
+    st.divider()
+    st.header("AI Portfolio Assistant")
+
+    totals = {
+        "total_value": total_value,
+        "total_cost": total_cost,
+        "total_gain": total_gain,
+        "total_gain_pct": total_gain_pct,
+    }
+    risk_metrics = st.session_state.get("risk_metrics")
+    system_prompt = build_system_prompt(rows, totals, risk_metrics)
+
+    if "chat_messages" not in st.session_state:
+        st.session_state.chat_messages = []
+
+    for msg in st.session_state.chat_messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+    if prompt := st.chat_input("Ask about your portfolio..."):
+        st.session_state.chat_messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
+        try:
+            client = OpenAI(base_url="http://localhost:11434/v1", api_key="ollama")
+            response = client.chat.completions.create(
+                model="llama3.2",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    *st.session_state.chat_messages,
+                ],
+            )
+            reply = response.choices[0].message.content
+        except Exception as e:
+            reply = (
+                f"Could not connect to Ollama. Make sure Ollama is running "
+                f"locally with `ollama serve` and the llama3.2 model is pulled.\n\n"
+                f"Error: {e}"
+            )
+
+        st.session_state.chat_messages.append({"role": "assistant", "content": reply})
+        with st.chat_message("assistant"):
+            st.markdown(reply)
 
